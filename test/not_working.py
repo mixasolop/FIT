@@ -1,0 +1,81 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
+import sys
+import librosa
+import soundfile as sf
+import torch
+import numpy as np
+from demucs.pretrained import get_model
+from demucs.apply import apply_model
+from basic_pitch.inference import predict_and_save
+from scipy.signal import lfilter
+
+def exponential_smoothing_filter(signal, alpha=0.3):
+    b = [alpha]
+    a = [1, -(1 - alpha)]
+    return lfilter(b, a, signal, axis=-1)
+
+def denoise_audio(y, sr, n_fft=2048, hop_length=512, alpha=0.3, 
+                  sigmoid_steepness=10, sigmoid_threshold=0.5,
+                  mask_smoothing=0.2, prop_decrease=1.0):
+    D = librosa.stft(y, n_fft=n_fft, hop_length=hop_length)
+    magnitude, phase = np.abs(D), np.angle(D)
+    smoothed_mag = exponential_smoothing_filter(magnitude, alpha=alpha)
+    diff = (magnitude - smoothed_mag) / (magnitude + smoothed_mag + 1e-10)
+    mask = 1 / (1 + np.exp(-sigmoid_steepness * (diff - sigmoid_threshold)))
+    smoothed_mask = exponential_smoothing_filter(mask, alpha=mask_smoothing)
+    if prop_decrease < 1.0:
+        smoothed_mask = prop_decrease * smoothed_mask + (1 - prop_decrease) * (1 - smoothed_mask)
+    denoised_stft = smoothed_mask * magnitude * np.exp(1j * phase)
+    denoised = librosa.istft(denoised_stft, hop_length=hop_length, length=len(y))
+    return denoised
+
+
+def hybrid_denoise(input_path, output_path, stem="other"):
+    audio, sr = librosa.load(input_path, sr=None, mono=False)
+    if audio.ndim == 1:
+        audio = np.stack([audio, audio], axis=0)
+    audio_tensor = torch.from_numpy(audio).float().unsqueeze(0)
+    model = get_model(name="htdemucs")
+    model.cpu()
+    with torch.no_grad():
+        stems = apply_model(model, audio_tensor, device='cpu')
+    stem_map = {0: 'drums', 1: 'bass', 2: 'other', 3: 'vocals'}
+    target_idx = [k for k, v in stem_map.items() if v == stem][0]
+    isolated_audio = stems[0][target_idx].cpu().numpy()
+    if isolated_audio.ndim == 2:
+        isolated_audio = np.mean(isolated_audio, axis=0)
+    denoised = denoise_audio(isolated_audio, sr, n_fft=2048, alpha=0.2, sigmoid_threshold=0.4)
+    sf.write(output_path, denoised, sr)
+    print(f"Cleaned audio saved to {output_path}")
+    return output_path
+def audio_to_midi_basic_pitch(audio_path, midi_output_path):
+    from basic_pitch import ICASSP_2022_MODEL_PATH
+    predict_and_save(
+        [audio_path],
+        output_directory=".",
+        save_midi=True,
+        save_notes=False,
+        save_model_outputs=False,
+        sonify_midi=False,
+        model_or_model_path=ICASSP_2022_MODEL_PATH 
+    )
+    base = os.path.splitext(os.path.basename(audio_path))[0]
+    generated_midi = f"{base}.mid"
+    if generated_midi != midi_output_path:
+        os.rename(generated_midi, midi_output_path)
+    print(f"MIDI saved to {midi_output_path}")
+    return midi_output_path
+
+def audio_to_sheet_pipeline(input_audio, output_midi, stem="other"):
+    denoised_audio = hybrid_denoise(input_audio, "1.wav", stem)
+    midi_path = audio_to_midi_basic_pitch(denoised_audio, output_midi)
+    print(f"Done. MIDI file: {midi_path}")
+
+
+import sys
+if __name__ == "__main__":
+
+    audio_to_sheet_pipeline(sys.argv[1], sys.argv[2], stem="other")

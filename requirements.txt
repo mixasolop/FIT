@@ -1,0 +1,33 @@
+# Core dependencies first
+numpy>=1.21.0,<1.25.0
+scipy>=1.9.0
+
+# Audio Processing
+librosa>=0.9.0
+soundfile>=0.12.1
+
+# Denoising
+noisereduce>=2.0.0
+
+# PyTorch (install BEFORE tensorflow to avoid conflicts)
+torch>=1.13.0
+torchaudio>=0.13.0
+
+# Audio source separation
+demucs>=4.0.0
+
+# TensorFlow (compatible version with basic-pitch)
+tensorflow>=2.8.0,<2.14.0
+
+# Audio to MIDI conversion
+basic-pitch>=0.3.0
+
+# MIDI Processing
+mido>=1.2.0
+pretty_midi>=0.2.9
+
+# Music notation and sheet music generation
+music21>=8.0.0
+
+# Machine Learning
+scikit-learn>=1.1.0
