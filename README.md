@@ -14,7 +14,7 @@ and analyzes frequencies to determine musical notes.
 - Integration of audio upload and result display
 - Linking the AI model response to the frontend output
 
-## AI part (high level)
+## AI part
 - Pre-trained model used for audio denoising
 - Frequency analysis performed on cleaned audio
 - Frequencies mapped to musical notes
